@@ -17,6 +17,7 @@ model Player {
   id        String   @id @default(uuid())
   name      String   @unique
   elo       Int      @default(1000)
+  rank      Int
   wins      Int      @default(0)
   losses    Int      @default(0)
   createdAt DateTime @default(now())
