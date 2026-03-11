@@ -36,7 +36,7 @@ export default function Home() {
             <div className='bg-white/10 backdrop-blur-sm rounded-lg p-6 border border-white/20'>
               <div className='text-4xl mb-3'>🎯</div>
               <h3 className='text-lg font-semibold text-white mb-2'>
-                "Skill-based" Player versus Player!
+                &quotSkill-based&quot Player versus Player!
               </h3>
               <p className='text-gray-300 text-sm'>
                 Outsmart your opponents with luck
