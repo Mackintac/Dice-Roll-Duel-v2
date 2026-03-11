@@ -21,5 +21,5 @@ export interface Match {
 export interface Round {
   roll1: number; // player1 roll
   roll2: number; // player2 roll
-  winnderId: string | null; // winner's id, null means they tied
+  winnerId: string | null; // winner's id, null means they tied
 }
