@@ -12,3 +12,40 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model Player {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  elo       Int      @default(1000)
+  wins      Int      @default(0)
+  losses    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  matchesAsP1 Match[] @relation("Player1Matches")
+  matchesAsP2 Match[] @relation("Player2Matches")
+  wonMatches  Match[] @relation("WonMatches")
+}
+
+model Match {
+  id         String   @id @default(uuid())
+  player1    Player   @relation("Player1Matches", fields: [player1Id], references: [id])
+  player1Id  String
+  player2    Player   @relation("Player2Matches", fields: [player2Id], references: [id])
+  player2Id  String
+  winner     Player   @relation("WonMatches", fields: [winnerId], references: [id])
+  winnerId   String
+  rounds     Round[]
+  eloChange  Int
+  playedAt   DateTime @default(now())
+
+}
+
+model Round {
+  id       String  @id @default(uuid())
+  match    Match   @relation(fields: [matchId], references: [id])
+  matchId  String
+  roll1    Int
+  roll2    Int
+  winnerId String? // null = tie
+  index    Int     // 0, 1, 2
+}
