@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import MatchArena from '../components/MatchArena';
+import { getSocket } from '../lib/socket';
+import ScorePips from '../components/ScorePips';
+import DiceRoller from '../components/DiceRoller';
 
 interface Player {
   id: string;
@@ -10,142 +12,355 @@ interface Player {
   elo: number;
 }
 
-type GamePhase = 'setup' | 'playing';
+interface Round {
+  roll1: number;
+  roll2: number;
+  winnerId: string | null;
+}
 
-export default function GameClient() {
+type GamePhase = 'idle' | 'queuing' | 'rolling' | 'round_result' | 'match_over';
+
+interface GameClientProps {
+  playerId: string;
+  playerName: string;
+}
+
+export default function GameClient({ playerId, playerName }: GameClientProps) {
   const router = useRouter();
-  const [phase, setPhase] = useState<GamePhase>('setup');
-  const [p1Name, setP1Name] = useState('');
-  const [p2Name, setP2Name] = useState('');
-  const [player1, setPlayer1] = useState<Player | null>(null);
-  const [player2, setPlayer2] = useState<Player | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<GamePhase>('idle');
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [me, setMe] = useState<Player | null>(null);
+  const [opponent, setOpponent] = useState<Player | null>(null);
+  const [rounds, setRounds] = useState<Round[]>([]);
+  const [currentRolls, setCurrentRolls] = useState<{
+    roll1: number;
+    roll2: number;
+  } | null>(null);
+  const [myRoundWins, setMyRoundWins] = useState(0);
+  const [opponentRoundWins, setOpponentRoundWins] = useState(0);
+  const [matchResult, setMatchResult] = useState<{
+    winnerId: string;
+    winnerName: string;
+    delta: number;
+  } | null>(null);
 
-  async function getOrCreatePlayer(name: string): Promise<Player> {
-    const res = await fetch('/api/players', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim() }),
+  useEffect(() => {
+    const socket = getSocket();
+    socket.connect();
+
+    socket.on('queue_joined', () => {
+      setPhase('queuing');
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error ?? 'Failed to create player');
-    }
-    return res.json();
+
+    socket.on(
+      'match_found',
+      (data: { roomId: string; player1: Player; player2: Player }) => {
+        setRoomId(data.roomId);
+
+        const iAmPlayer1 = data.player1.id === playerId;
+        setMe(iAmPlayer1 ? data.player1 : data.player2);
+        setOpponent(iAmPlayer1 ? data.player2 : data.player1);
+
+        setPhase('rolling');
+      },
+    );
+
+    socket.on(
+      'round_result',
+      (data: {
+        roll1: number;
+        roll2: number;
+        winnerId: string | null;
+        p1RoundWins: number;
+        p2RoundWins: number;
+      }) => {
+        setCurrentRolls({ roll1: data.roll1, roll2: data.roll2 });
+        setRounds((prev) => [
+          ...prev,
+          {
+            roll1: data.roll1,
+            roll2: data.roll2,
+            winnerId: data.winnerId,
+          },
+        ]);
+
+        // Figure out wins from my perspective
+        const iAmPlayer1 = me?.id === playerId;
+        setMyRoundWins(iAmPlayer1 ? data.p1RoundWins : data.p2RoundWins);
+        setOpponentRoundWins(iAmPlayer1 ? data.p2RoundWins : data.p1RoundWins);
+
+        setPhase('round_result');
+      },
+    );
+
+    socket.on(
+      'match_over',
+      (data: {
+        winnerId: string;
+        winnerName: string;
+        delta: number;
+        rounds: Round[];
+      }) => {
+        setMatchResult(data);
+        setPhase('match_over');
+
+        setTimeout(() => router.push('/leaderboard'), 4000);
+      },
+    );
+
+    socket.on('opponent_disconnected', () => {
+      alert('Your opponent disconnected.');
+      resetGame();
+    });
+
+    socket.on('error', (data: { message: string }) => {
+      console.error('Socket error:', data.message);
+    });
+
+    return () => {
+      socket.off('queue_joined');
+      socket.off('match_found');
+      socket.off('round_result');
+      socket.off('match_over');
+      socket.off('opponent_disconnected');
+      socket.off('error');
+      socket.disconnect();
+    };
+  }, [playerId]);
+
+  function handleFindMatch() {
+    const socket = getSocket();
+    socket.emit('join_queue', { playerId });
   }
 
-  async function handleStartGame() {
-    if (!p1Name.trim() || !p2Name.trim()) {
-      setError('Both player names are required.');
-      return;
-    }
-    if (p1Name.trim().toLowerCase() === p2Name.trim().toLowerCase()) {
-      setError('Player names must be different.');
-      return;
-    }
-
-    setError(null);
-    setLoading(true);
-
-    try {
-      const [p1, p2] = await Promise.all([
-        getOrCreatePlayer(p1Name),
-        getOrCreatePlayer(p2Name),
-      ]);
-      setPlayer1(p1);
-      setPlayer2(p2);
-      setPhase('playing');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-    } finally {
-      setLoading(false);
-    }
+  function handleCancelQueue() {
+    const socket = getSocket();
+    socket.emit('leave_queue');
+    setPhase('idle');
   }
 
-  function handleMatchComplete() {
-    setTimeout(() => router.push('/'), 3000);
+  function handleRoll() {
+    if (!roomId || phase === 'rolling') return;
+    const socket = getSocket();
+    setPhase('rolling');
+    socket.emit('roll', { roomId });
   }
 
-  if (phase === 'playing' && player1 && player2) {
+  function resetGame() {
+    setPhase('idle');
+    setRoomId(null);
+    setMe(null);
+    setOpponent(null);
+    setRounds([]);
+    setCurrentRolls(null);
+    setMyRoundWins(0);
+    setOpponentRoundWins(0);
+    setMatchResult(null);
+  }
+
+  // IDLE — find a match
+  if (phase === 'idle') {
     return (
       <main className='min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4'>
-        <div className='max-w-2xl w-full mx-auto'>
-          <MatchArena
-            player1={player1}
-            player2={player2}
-            onMatchComplete={handleMatchComplete}
-          />
+        <div className='max-w-md w-full mx-auto text-center'>
+          <div className='mb-10'>
+            <h1 className='text-5xl font-bold text-white tracking-wider mb-2'>
+              FIND MATCH
+            </h1>
+            <p className='text-gray-400'>
+              Signed in as{' '}
+              <span className='text-yellow-400 font-semibold'>
+                {playerName}
+              </span>
+            </p>
+          </div>
+
+          <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-10'>
+            <div className='text-6xl mb-6'>🎲</div>
+            <p className='text-gray-300 mb-8'>
+              Click below to enter the matchmaking queue. You'll be paired with
+              the next available player.
+            </p>
+            <button
+              onClick={handleFindMatch}
+              className='w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-lg py-4 rounded-full shadow-lg hover:scale-105 transition-all duration-200'
+            >
+              FIND MATCH
+            </button>
+          </div>
+
+          <div className='mt-6'>
+            <a
+              href='/'
+              className='text-gray-400 hover:text-white text-sm transition-colors'
+            >
+              &larr; Back to home
+            </a>
+          </div>
         </div>
       </main>
     );
   }
 
+  // QUEUING — waiting for opponent
+  if (phase === 'queuing') {
+    return (
+      <main className='min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4'>
+        <div className='max-w-md w-full mx-auto text-center'>
+          <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-10'>
+            <div className='text-6xl mb-6 animate-bounce'>🎲</div>
+            <h2 className='text-2xl font-bold text-white mb-2'>
+              Searching for opponent...
+            </h2>
+            <p className='text-gray-400 text-sm mb-8'>
+              You'll be matched automatically when another player is ready.
+            </p>
+
+            <div className='flex justify-center gap-2 mb-8'>
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className='w-2 h-2 bg-yellow-400 rounded-full animate-bounce'
+                  style={{ animationDelay: `${i * 0.15}s` }}
+                />
+              ))}
+            </div>
+
+            <button
+              onClick={handleCancelQueue}
+              className='bg-white/20 hover:bg-white/30 text-white font-semibold px-8 py-3 rounded-full border border-white/30 transition-all duration-200'
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // MATCH OVER
+  if (phase === 'match_over' && matchResult) {
+    const iWon = matchResult.winnerId === playerId;
+    return (
+      <main className='min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4'>
+        <div className='max-w-md w-full mx-auto text-center'>
+          <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-10'>
+            <div className='text-6xl mb-4'>{iWon ? '🏆' : '💀'}</div>
+            <h2
+              className={`text-4xl font-bold mb-2 ${iWon ? 'text-yellow-400' : 'text-red-400'}`}
+            >
+              {iWon ? 'YOU WIN!' : 'YOU LOSE!'}
+            </h2>
+            <p className='text-gray-300 mb-2'>
+              {matchResult.winnerName} wins the match
+            </p>
+            <p
+              className={`font-bold text-lg mb-6 ${iWon ? 'text-green-400' : 'text-red-400'}`}
+            >
+              {iWon ? `+${matchResult.delta}` : `-${matchResult.delta}`} ELO
+            </p>
+
+            {/* Round history */}
+            <div className='flex gap-2 flex-wrap justify-center mb-6'>
+              {rounds.map((r, i) => (
+                <div
+                  key={i}
+                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-1 text-xs text-gray-300'
+                >
+                  R{i + 1}: {r.roll1} vs {r.roll2}{' '}
+                  {r.winnerId === null
+                    ? '· Tie'
+                    : r.winnerId === playerId
+                      ? '· You'
+                      : '· Them'}
+                </div>
+              ))}
+            </div>
+
+            <p className='text-gray-500 text-xs'>
+              Redirecting to leaderboard...
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // IN MATCH
   return (
     <main className='min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4'>
-      <div className='max-w-lg w-full mx-auto'>
-        <div className='text-center mb-10'>
-          <h1 className='text-5xl font-bold text-white tracking-wider mb-2'>
-            NEW MATCH
-          </h1>
-          <p className='text-gray-300'>Enter both player names to begin</p>
-        </div>
+      <div className='max-w-2xl w-full mx-auto'>
+        <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-8'>
+          {/* Players */}
+          <div className='flex items-center justify-between mb-6'>
+            <div className='text-center flex-1'>
+              <p className='text-white font-bold text-xl'>
+                {me?.name ?? '...'}
+              </p>
+              <p className='text-gray-400 text-sm'>{me?.elo} ELO</p>
+              <ScorePips wins={myRoundWins} />
+            </div>
 
-        <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-8 space-y-6'>
-          <div>
-            <label className='block text-sm font-semibold text-gray-300 mb-2 tracking-wider uppercase'>
-              Player 1
-            </label>
-            <input
-              type='text'
-              placeholder='Enter name...'
-              value={p1Name}
-              onChange={(e) => setP1Name(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleStartGame()}
-              className='w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-yellow-400 transition-colors'
-            />
-          </div>
-
-          <div className='flex items-center gap-4'>
-            <div className='flex-1 h-px bg-white/20' />
-            <span className='text-yellow-400 font-bold tracking-widest text-sm'>
+            <div className='text-yellow-400 font-bold text-2xl tracking-widest px-4'>
               VS
-            </span>
-            <div className='flex-1 h-px bg-white/20' />
+            </div>
+
+            <div className='text-center flex-1'>
+              <p className='text-white font-bold text-xl'>
+                {opponent?.name ?? '...'}
+              </p>
+              <p className='text-gray-400 text-sm'>{opponent?.elo} ELO</p>
+              <ScorePips wins={opponentRoundWins} />
+            </div>
           </div>
 
-          <div>
-            <label className='block text-sm font-semibold text-gray-300 mb-2 tracking-wider uppercase'>
-              Player 2
-            </label>
-            <input
-              type='text'
-              placeholder='Enter name...'
-              value={p2Name}
-              onChange={(e) => setP2Name(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleStartGame()}
-              className='w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-yellow-400 transition-colors'
-            />
+          {/* Dice */}
+          <DiceRoller
+            roll1={currentRolls?.roll1 ?? null}
+            roll2={currentRolls?.roll2 ?? null}
+            rolling={phase === 'rolling'}
+          />
+
+          {/* Round result message */}
+          {phase === 'round_result' && currentRolls && (
+            <p className='text-center text-white/80 text-sm mb-4'>
+              {currentRolls.roll1 === currentRolls.roll2
+                ? 'Tie — no point awarded'
+                : currentRolls.roll1 > currentRolls.roll2
+                  ? `${me?.name} wins the round!`
+                  : `${opponent?.name} wins the round!`}
+            </p>
+          )}
+
+          {/* Round history */}
+          {rounds.length > 0 && (
+            <div className='flex gap-2 flex-wrap justify-center mb-6'>
+              {rounds.map((r, i) => (
+                <div
+                  key={i}
+                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-1 text-xs text-gray-300'
+                >
+                  R{i + 1}: {r.roll1} vs {r.roll2}{' '}
+                  {r.winnerId === null
+                    ? '· Tie'
+                    : r.winnerId === playerId
+                      ? '· You'
+                      : '· Them'}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Roll button */}
+          <div className='flex justify-center'>
+            <button
+              onClick={handleRoll}
+              disabled={phase === 'rolling'}
+              className='bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold text-lg px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-all duration-200'
+            >
+              {phase === 'rolling' ? 'Rolling...' : 'ROLL'}
+            </button>
           </div>
-
-          {error && <p className='text-red-400 text-sm text-center'>{error}</p>}
-
-          <button
-            onClick={handleStartGame}
-            disabled={loading}
-            className='w-full bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold text-lg py-4 rounded-full shadow-lg hover:scale-105 transition-all duration-200'
-          >
-            {loading ? 'Starting...' : 'START MATCH'}
-          </button>
-        </div>
-
-        <div className='text-center mt-6'>
-          <a
-            href='/'
-            className='text-gray-400 hover:text-white text-sm transition-colors'
-          >
-            &larr; Back to home
-          </a>
         </div>
       </div>
     </main>
