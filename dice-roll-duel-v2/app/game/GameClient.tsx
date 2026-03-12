@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSocket } from '../lib/socket';
 import ScorePips from '../components/ScorePips';
@@ -36,6 +36,7 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
     roll1: number;
     roll2: number;
   } | null>(null);
+  const playerIdRef = useRef(playerId);
   const [myRoundWins, setMyRoundWins] = useState(0);
   const [opponentRoundWins, setOpponentRoundWins] = useState(0);
   const [matchResult, setMatchResult] = useState<{
@@ -56,12 +57,10 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
       'match_found',
       (data: { roomId: string; player1: Player; player2: Player }) => {
         setRoomId(data.roomId);
-
         const iAmPlayer1 = data.player1.id === playerId;
         setMe(iAmPlayer1 ? data.player1 : data.player2);
         setOpponent(iAmPlayer1 ? data.player2 : data.player1);
-
-        setPhase('rolling');
+        setPhase('round_result'); // ← was 'rolling', now 'round_result' so button is enabled
       },
     );
 
@@ -84,10 +83,14 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
           },
         ]);
 
-        // Figure out wins from my perspective
-        const iAmPlayer1 = me?.id === playerId;
-        setMyRoundWins(iAmPlayer1 ? data.p1RoundWins : data.p2RoundWins);
-        setOpponentRoundWins(iAmPlayer1 ? data.p2RoundWins : data.p1RoundWins);
+        setMe((currentMe) => {
+          const iAmPlayer1 = currentMe?.id === playerIdRef.current;
+          setMyRoundWins(iAmPlayer1 ? data.p1RoundWins : data.p2RoundWins);
+          setOpponentRoundWins(
+            iAmPlayer1 ? data.p2RoundWins : data.p1RoundWins,
+          );
+          return currentMe;
+        });
 
         setPhase('round_result');
       },
@@ -140,7 +143,8 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
   }
 
   function handleRoll() {
-    if (!roomId || phase === 'rolling') return;
+    if (!roomId) return;
+    if (phase !== 'round_result' && phase !== 'rolling') return;
     const socket = getSocket();
     setPhase('rolling');
     socket.emit('roll', { roomId });
@@ -358,7 +362,11 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
               disabled={phase === 'rolling'}
               className='bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold text-lg px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-all duration-200'
             >
-              {phase === 'rolling' ? 'Rolling...' : 'ROLL'}
+              {phase === 'rolling'
+                ? 'Rolling...'
+                : rounds.length === 0
+                  ? 'ROLL'
+                  : 'NEXT ROLL'}
             </button>
           </div>
         </div>
