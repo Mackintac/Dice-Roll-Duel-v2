@@ -7,7 +7,7 @@ declare global {
 }
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = new PrismaPg(pool);
+const adapter = new PrismaPg(pool as any);
 
 export const prisma = globalThis.prisma ?? new PrismaClient({ adapter });
 
