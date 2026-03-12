@@ -10,8 +10,16 @@ export async function GET() {
 }
 export async function POST(req: Request) {
   const { name } = await req.json();
-  const player = await prisma.prisma.player.create({
-    data: { name },
+
+  if (!name?.trim()) {
+    return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+  }
+
+  const player = await prisma.prisma.player.upsert({
+    where: { name: name.trim() },
+    update: {}, // already exists, return as-is, no changes
+    create: { name: name.trim() },
   });
+
   return NextResponse.json(player, { status: 201 });
 }
