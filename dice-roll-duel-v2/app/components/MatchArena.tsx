@@ -1,0 +1,210 @@
+'use client';
+
+import { useState } from 'react';
+import ScorePips from './ScorePips';
+import DiceRoller from './DiceRoller';
+
+interface Player {
+  id: string;
+  name: string;
+  elo: number;
+}
+
+interface Round {
+  roll1: number;
+  roll2: number;
+  winnerId: string | null;
+}
+
+interface MatchArenaProps {
+  player1: Player;
+  player2: Player;
+  onMatchComplete?: () => void; // refresh leaderboard after
+}
+
+type MatchPhase = 'idle' | 'rolling' | 'round_result' | 'match_over';
+
+export default function MatchArena({
+  player1,
+  player2,
+  onMatchComplete,
+}: MatchArenaProps) {
+  const [rounds, setRounds] = useState<Round[]>([]);
+  const [phase, setPhase] = useState<MatchPhase>('idle');
+  const [currentRolls, setCurrentRolls] = useState<{
+    roll1: number;
+    roll2: number;
+  } | null>(null);
+  const [matchWinnerId, setMatchWinnerId] = useState<string | null>(null);
+  const [eloChange, setEloChange] = useState<number | null>(null);
+
+  // Count round wins per player from completed rounds
+  const p1RoundWins = rounds.filter((r) => r.winnerId === player1.id).length;
+  const p2RoundWins = rounds.filter((r) => r.winnerId === player2.id).length;
+
+  function rollDie(): number {
+    return Math.floor(Math.random() * 6) + 1;
+  }
+
+  function getRoundWinnerId(roll1: number, roll2: number): string | null {
+    if (roll1 > roll2) return player1.id;
+    if (roll2 > roll1) return player2.id;
+    return null; // tie
+  }
+
+  function getMatchWinner(completedRounds: Round[]): string | null {
+    const p1Wins = completedRounds.filter(
+      (r) => r.winnerId === player1.id,
+    ).length;
+    const p2Wins = completedRounds.filter(
+      (r) => r.winnerId === player2.id,
+    ).length;
+    if (p1Wins >= 2) return player1.id;
+    if (p2Wins >= 2) return player2.id;
+    return null;
+  }
+
+  async function handleRoll() {
+    if (phase === 'rolling' || phase === 'match_over') return;
+
+    setPhase('rolling');
+
+    // Small delay for animation feel
+    await new Promise((res) => setTimeout(res, 600));
+
+    const roll1 = rollDie();
+    const roll2 = rollDie();
+    const roundWinnerId = getRoundWinnerId(roll1, roll2);
+
+    const newRound: Round = { roll1, roll2, winnerId: roundWinnerId };
+    const updatedRounds = [...rounds, newRound];
+
+    setCurrentRolls({ roll1, roll2 });
+    setRounds(updatedRounds);
+    setPhase('round_result');
+
+    // Check if someone has won the match
+    const matchWinner = getMatchWinner(updatedRounds);
+    if (matchWinner) {
+      await submitMatch(updatedRounds, matchWinner);
+    }
+  }
+
+  async function submitMatch(completedRounds: Round[], winnerId: string) {
+    try {
+      const res = await fetch('/api/matches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          player1Id: player1.id,
+          player2Id: player2.id,
+          winnerId,
+          rounds: completedRounds,
+        }),
+      });
+
+      const data = await res.json();
+      setMatchWinnerId(winnerId);
+      setEloChange(data.delta);
+      setPhase('match_over');
+      onMatchComplete?.();
+    } catch (err) {
+      console.error('Failed to submit match:', err);
+    }
+  }
+
+  function resetMatch() {
+    setRounds([]);
+    setPhase('idle');
+    setCurrentRolls(null);
+    setMatchWinnerId(null);
+    setEloChange(null);
+  }
+
+  const matchWinner = matchWinnerId === player1.id ? player1 : player2;
+  const matchLoser = matchWinnerId === player1.id ? player2 : player1;
+
+  return (
+    <div className='match-arena'>
+      {/* Players + scores */}
+      <div className='match-header'>
+        <div>
+          <div className='player-name'>{player1.name}</div>
+          <div className='player-elo'>{player1.elo} ELO</div>
+          <ScorePips wins={p1RoundWins} />
+        </div>
+
+        <span className='vs'>VS</span>
+
+        <div className='text-right'>
+          <div className='player-name'>{player2.name}</div>
+          <div className='player-elo'>{player2.elo} ELO</div>
+          <ScorePips wins={p2RoundWins} />
+        </div>
+      </div>
+
+      {/* Dice */}
+      <DiceRoller
+        roll1={currentRolls?.roll1 ?? null}
+        roll2={currentRolls?.roll2 ?? null}
+        rolling={phase === 'rolling'}
+      />
+
+      {/* Round result */}
+      {phase === 'round_result' && currentRolls && !matchWinnerId && (
+        <p className='round-result'>
+          {getRoundWinnerId(currentRolls.roll1, currentRolls.roll2) === null
+            ? 'Tie — no point awarded'
+            : `${getRoundWinnerId(currentRolls.roll1, currentRolls.roll2) === player1.id ? player1.name : player2.name} wins the round!`}
+        </p>
+      )}
+
+      {/* Match over */}
+      {phase === 'match_over' && matchWinnerId && (
+        <div className='match-result'>
+          <h2>{matchWinner.name} wins the match!</h2>
+          <p>
+            {matchWinner.name} <span className='elo-up'>+{eloChange}</span>
+            {'  '}
+            {matchLoser.name} <span className='elo-down'>-{eloChange}</span>
+          </p>
+          <p className='round-score'>
+            {p1RoundWins} – {p2RoundWins}
+          </p>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className='actions'>
+        {phase !== 'match_over' && (
+          <button onClick={handleRoll} disabled={phase === 'rolling'}>
+            {phase === 'idle'
+              ? 'Roll'
+              : phase === 'rolling'
+                ? 'Rolling...'
+                : 'Next Roll'}
+          </button>
+        )}
+        {phase === 'match_over' && (
+          <button onClick={resetMatch}>Play Again</button>
+        )}
+      </div>
+
+      {/* Round history */}
+      {rounds.length > 0 && (
+        <div className='round-history'>
+          {rounds.map((r, i) => (
+            <div key={i} className='history-item'>
+              Round {i + 1}: {r.roll1} vs {r.roll2} —{' '}
+              {r.winnerId === null
+                ? 'Tie'
+                : r.winnerId === player1.id
+                  ? player1.name
+                  : player2.name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
