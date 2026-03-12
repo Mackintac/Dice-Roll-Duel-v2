@@ -1,14 +1,16 @@
-import { PrismaClient } from '@prisma/client/extension';
+import { PrismaClient } from '@/app/generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 
-// checks for an existing PrismaClient in globalThis object
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
+declare global {
+  var prisma: PrismaClient | undefined;
+}
 
-// exports the cached version or a new PrismaClient if one doesn't already exist
-export const prisma = globalForPrisma ?? new PrismaClient();
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
 
-// update globalForPrisma to new version of PrismaClient if node environment is dev
+export const prisma = globalThis.prisma ?? new PrismaClient({ adapter });
+
 if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+  globalThis.prisma = prisma;
 }

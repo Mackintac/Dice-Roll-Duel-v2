@@ -7,8 +7,8 @@ export async function POST(req: Request) {
   const { player1Id, player2Id, winnerId, rounds } = await req.json();
 
   const [p1, p2] = await Promise.all([
-    prisma.prisma.player.findUniqueOrThrow({ where: { id: player1Id } }),
-    prisma.prisma.player.findUniqueOrThrow({ where: { id: player2Id } }),
+    prisma.player.findUniqueOrThrow({ where: { id: player1Id } }),
+    prisma.player.findUniqueOrThrow({ where: { id: player2Id } }),
   ]);
 
   const loserId = winnerId === player1Id ? player2Id : player1Id;
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     loserRating,
   );
 
-  const match = await prisma.prisma.$transaction(
+  const match = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
       const match = await tx.match.create({
         data: {

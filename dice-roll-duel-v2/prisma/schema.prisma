@@ -5,7 +5,7 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../app/generated/prisma"
 }
 
@@ -17,7 +17,7 @@ model Player {
   id        String   @id @default(uuid())
   name      String   @unique
   elo       Int      @default(1000)
-  rank      Int
+  rank      Int?
   wins      Int      @default(0)
   losses    Int      @default(0)
   createdAt DateTime @default(now())
