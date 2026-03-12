@@ -1,0 +1,3 @@
+interface ScorePipsProps {
+  wins: number;
+}
