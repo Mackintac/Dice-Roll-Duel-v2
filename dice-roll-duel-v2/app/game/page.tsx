@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import MatchArena from '../components/MatchArena';
+import { auth } from '../lib/auth';
+import { redirect } from 'next/navigation';
 
 interface Player {
   id: string;
@@ -12,7 +14,11 @@ interface Player {
 
 type GamePhase = 'setup' | 'playing';
 
-export default function GamePage() {
+export default async function GamePage() {
+  // Session check
+  const session = await auth();
+  if (!session) redirect('/auth/signin');
+
   const router = useRouter();
   const [phase, setPhase] = useState<GamePhase>('setup');
   const [p1Name, setP1Name] = useState('');
