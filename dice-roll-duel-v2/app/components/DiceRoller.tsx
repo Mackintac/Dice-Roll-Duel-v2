@@ -1,8 +1,9 @@
 'use client';
+
 interface DiceRollerProps {
   roll1: number | null;
   roll2: number | null;
-  rolling: boolean; // roll-in-progress for css anim
+  rolling: boolean; //roll in-progress for css anim
 }
 
 const diceFaces: Record<number, string> = {
@@ -16,9 +17,11 @@ const diceFaces: Record<number, string> = {
 
 export default function DiceRoller({ roll1, roll2, rolling }: DiceRollerProps) {
   return (
-    <div className='dice-roller'>
+    <div className='flex items-center justify-center gap-8 py-8'>
       <Die value={roll1} rolling={rolling} />
-      <span className='dice-vs'>VS</span>
+      <span className='text-white/40 font-bold text-sm tracking-widest'>
+        VS
+      </span>
       <Die value={roll2} rolling={rolling} />
     </div>
   );
@@ -31,7 +34,15 @@ interface DieProps {
 
 function Die({ value, rolling }: DieProps) {
   return (
-    <div className={`die ${rolling ? 'die--rolling' : ''}`}>
+    <div
+      className={`
+        w-24 h-24 bg-white rounded-2xl shadow-lg
+        flex items-center justify-center
+        text-5xl font-bold text-gray-800
+        transition-all duration-200
+        ${rolling ? 'animate-bounce scale-110' : ''}
+      `}
+    >
       {rolling ? '?' : value !== null ? diceFaces[value] : '?'}
     </div>
   );
