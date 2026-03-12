@@ -13,14 +13,66 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String?   // null for OAuth users
+  name          String?
+  image         String?
+  createdAt     DateTime  @default(now())
+
+  accounts      Account[]
+  sessions      Session[]
+  player        Player?
+}
+
+// Required by NextAuth
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
 model Player {
   id        String   @id @default(uuid())
   name      String   @unique
   elo       Int      @default(1000)
-  rank      Int?
   wins      Int      @default(0)
   losses    Int      @default(0)
   createdAt DateTime @default(now())
+
+  userId String? @unique  // ← link to User
+  user   User?   @relation(fields: [userId], references: [id])
 
   matchesAsP1 Match[] @relation("Player1Matches")
   matchesAsP2 Match[] @relation("Player2Matches")
