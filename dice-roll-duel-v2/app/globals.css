@@ -49,3 +49,25 @@ body {
     transform: rotate(0deg) scale(1);
   }
 }
+
+.score-pips {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.pip {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  transition: background-color 0.2s;
+}
+
+.pip--filled {
+  background-color: currentColor;
+}
+
+.pip--empty {
+  background-color: transparent;
+}
