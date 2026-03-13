@@ -28,7 +28,13 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   }
-
+  const existingPlayer = await prisma.player.findUnique({ where: { name } });
+  if (existingPlayer) {
+    return NextResponse.json(
+      { error: 'That username is already taken' },
+      { status: 409 },
+    );
+  }
   const hashed = await bcrypt.hash(password, 12);
   const verificationToken = randomUUID();
 
