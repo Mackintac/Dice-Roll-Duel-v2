@@ -162,8 +162,10 @@ app.prepare().then(() => {
         roll1,
         roll2,
         winnerId: roundWinnerId,
-        p1RoundWins: room.p1RoundWins,
-        p2RoundWins: room.p2RoundWins,
+        wins: {
+          [room.player1.playerId]: room.p1RoundWins,
+          [room.player2.playerId]: room.p2RoundWins,
+        },
         roundIndex: room.rounds.length - 1,
       });
 

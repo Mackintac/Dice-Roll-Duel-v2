@@ -72,8 +72,7 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
         roll1: number;
         roll2: number;
         winnerId: string | null;
-        p1RoundWins: number;
-        p2RoundWins: number;
+        wins: Record<string, number>;
       }) => {
         setIReady(false);
         setOpponentReady(false);
@@ -87,13 +86,13 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
           },
         ]);
 
-        setMe((currentMe) => {
-          const iAmPlayer1 = currentMe?.id === playerIdRef.current;
-          setMyRoundWins(iAmPlayer1 ? data.p1RoundWins : data.p2RoundWins);
-          setOpponentRoundWins(
-            iAmPlayer1 ? data.p2RoundWins : data.p1RoundWins,
-          );
-          return currentMe;
+        setMyRoundWins(data.wins[playerIdRef.current] ?? 0);
+
+        setOpponent((currentOpponent) => {
+          if (currentOpponent) {
+            setOpponentRoundWins(data.wins[currentOpponent.id] ?? 0);
+          }
+          return currentOpponent;
         });
 
         setPhase('round_result');
