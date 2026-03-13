@@ -14,16 +14,18 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  password      String?   // null for OAuth users
-  name          String?
-  image         String?
-  createdAt     DateTime  @default(now())
+  id                String    @id @default(uuid())
+  email             String    @unique
+  password          String?
+  name              String?
+  image             String?
+  emailVerified     DateTime?
+  verificationToken String?   @unique
+  createdAt         DateTime  @default(now())
 
-  accounts      Account[]
-  sessions      Session[]
-  player        Player?
+  accounts    Account[]
+  sessions    Session[]
+  player      Player?
 }
 
 // Required by NextAuth
