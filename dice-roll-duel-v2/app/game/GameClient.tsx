@@ -39,6 +39,7 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
     roll2: number;
   } | null>(null);
   const playerIdRef = useRef(playerId);
+  const iAmPlayer1Ref = useRef<boolean>(true);
   const [myRoundWins, setMyRoundWins] = useState(0);
   const [opponentRoundWins, setOpponentRoundWins] = useState(0);
   const [matchResult, setMatchResult] = useState<{
@@ -60,9 +61,10 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
       (data: { roomId: string; player1: Player; player2: Player }) => {
         setRoomId(data.roomId);
         const iAmPlayer1 = data.player1.id === playerId;
+        iAmPlayer1Ref.current = iAmPlayer1;
         setMe(iAmPlayer1 ? data.player1 : data.player2);
         setOpponent(iAmPlayer1 ? data.player2 : data.player1);
-        setPhase('round_result'); // ← was 'rolling', now 'round_result' so button is enabled
+        setPhase('round_result');
       },
     );
 
@@ -280,19 +282,23 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
 
             {/* Round history */}
             <div className='flex gap-2 flex-wrap justify-center mb-6'>
-              {rounds.map((r, i) => (
-                <div
-                  key={i}
-                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-1 text-xs text-gray-300'
-                >
-                  R{i + 1}: {r.roll1} vs {r.roll2}{' '}
-                  {r.winnerId === null
-                    ? '· Tie'
-                    : r.winnerId === playerId
-                      ? '· You'
-                      : '· Them'}
-                </div>
-              ))}
+              {rounds.map((r, i) => {
+                const myRoll = iAmPlayer1Ref.current ? r.roll1 : r.roll2;
+                const theirRoll = iAmPlayer1Ref.current ? r.roll2 : r.roll1;
+                return (
+                  <div
+                    key={i}
+                    className='bg-white/10 border border-white/20 rounded-lg px-3 py-1 text-xs text-gray-300'
+                  >
+                    R{i + 1}: {myRoll} vs {theirRoll}{' '}
+                    {r.winnerId === null
+                      ? '· Tie'
+                      : r.winnerId === playerId
+                        ? '· You'
+                        : '· Them'}
+                  </div>
+                );
+              })}
             </div>
 
             <p className='text-gray-500 text-xs'>
@@ -334,8 +340,20 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
 
           {/* Dice */}
           <DiceRoller
-            roll1={currentRolls?.roll1 ?? null}
-            roll2={currentRolls?.roll2 ?? null}
+            roll1={
+              currentRolls
+                ? iAmPlayer1Ref.current
+                  ? currentRolls.roll1
+                  : currentRolls.roll2
+                : null
+            }
+            roll2={
+              currentRolls
+                ? iAmPlayer1Ref.current
+                  ? currentRolls.roll2
+                  : currentRolls.roll1
+                : null
+            }
             rolling={phase === 'rolling'}
           />
 
@@ -353,19 +371,23 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
           {/* Round history */}
           {rounds.length > 0 && (
             <div className='flex gap-2 flex-wrap justify-center mb-6'>
-              {rounds.map((r, i) => (
-                <div
-                  key={i}
-                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-1 text-xs text-gray-300'
-                >
-                  R{i + 1}: {r.roll1} vs {r.roll2}{' '}
-                  {r.winnerId === null
-                    ? '· Tie'
-                    : r.winnerId === playerId
-                      ? '· You'
-                      : '· Them'}
-                </div>
-              ))}
+              {rounds.map((r, i) => {
+                const myRoll = iAmPlayer1Ref.current ? r.roll1 : r.roll2;
+                const theirRoll = iAmPlayer1Ref.current ? r.roll2 : r.roll1;
+                return (
+                  <div
+                    key={i}
+                    className='bg-white/10 border border-white/20 rounded-lg px-3 py-1 text-xs text-gray-300'
+                  >
+                    R{i + 1}: {myRoll} vs {theirRoll}{' '}
+                    {r.winnerId === null
+                      ? '· Tie'
+                      : r.winnerId === playerId
+                        ? '· You'
+                        : '· Them'}
+                  </div>
+                );
+              })}
             </div>
           )}
 
