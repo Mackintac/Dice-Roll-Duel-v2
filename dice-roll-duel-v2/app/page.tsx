@@ -1,6 +1,11 @@
 import Link from 'next/link';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/lib/auth';
+import SignOutButton from './components/SignOutButton';
 
-export default function Home() {
+export default async function Home() {
+  const session = await getServerSession(authOptions);
+
   return (
     <main className='min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4'>
       <div className='max-w-4xl mx-auto text-center'>
@@ -65,20 +70,54 @@ export default function Home() {
 
         {/* Actions */}
         <div className='space-y-4'>
-          <Link
-            href='/game'
-            className='inline-block bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-xl px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-all duration-200'
-          >
-            PLAY
-          </Link>
-          <div className='flex flex-col sm:flex-row gap-4 justify-center'>
-            <Link
-              href='/leaderboard'
-              className='bg-white/20 hover:bg-white/30 text-white font-semibold px-8 py-3 rounded-full border border-white/30 transition-all duration-200'
-            >
-              Leaderboard
-            </Link>
-          </div>
+          {session ? (
+            <>
+              <p className='text-gray-400 text-sm'>
+                Signed in as{' '}
+                <span className='text-yellow-400 font-semibold'>
+                  {session.user.name ?? session.user.email}
+                </span>
+              </p>
+              <Link
+                href='/game'
+                className='inline-block bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-xl px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-all duration-200'
+              >
+                PLAY
+              </Link>
+              <div className='flex flex-col sm:flex-row gap-4 justify-center'>
+                <Link
+                  href='/leaderboard'
+                  className='bg-white/20 hover:bg-white/30 text-white font-semibold px-8 py-3 rounded-full border border-white/30 transition-all duration-200'
+                >
+                  Leaderboard
+                </Link>
+                <SignOutButton />
+              </div>
+            </>
+          ) : (
+            <>
+              <Link
+                href='/auth/signin'
+                className='inline-block bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-xl px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-all duration-200'
+              >
+                SIGN IN
+              </Link>
+              <div className='flex flex-col sm:flex-row gap-4 justify-center'>
+                <Link
+                  href='/leaderboard'
+                  className='bg-white/20 hover:bg-white/30 text-white font-semibold px-8 py-3 rounded-full border border-white/30 transition-all duration-200'
+                >
+                  Leaderboard
+                </Link>
+                <Link
+                  href='/auth/register'
+                  className='bg-white/20 hover:bg-white/30 text-white font-semibold px-8 py-3 rounded-full border border-white/30 transition-all duration-200'
+                >
+                  Register
+                </Link>
+              </div>
+            </>
+          )}
         </div>
 
         <div className='mt-16 text-gray-400 text-sm'>
