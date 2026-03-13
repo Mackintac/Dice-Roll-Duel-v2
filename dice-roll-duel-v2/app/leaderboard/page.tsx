@@ -93,8 +93,13 @@ export default async function LeaderboardPage() {
                                 : i + 1}
                         </span>
                       </td>
-                      <td className='px-6 py-4 text-white font-semibold'>
-                        {player.name}
+                      <td className='px-6 py-4'>
+                        <Link
+                          href={`/players/${player.id}`}
+                          className='text-white font-semibold hover:text-yellow-400 transition-colors'
+                        >
+                          {player.name}
+                        </Link>
                       </td>
                       <td className='px-6 py-4 text-yellow-400 font-bold font-mono'>
                         {player.elo}
