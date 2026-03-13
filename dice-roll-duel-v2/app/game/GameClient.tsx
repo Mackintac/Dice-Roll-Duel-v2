@@ -26,6 +26,8 @@ interface GameClientProps {
 }
 
 export default function GameClient({ playerId, playerName }: GameClientProps) {
+  const [opponentReady, setOpponentReady] = useState(false);
+  const [iReady, setIReady] = useState(false);
   const router = useRouter();
   const [phase, setPhase] = useState<GamePhase>('idle');
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -73,6 +75,8 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
         p1RoundWins: number;
         p2RoundWins: number;
       }) => {
+        setIReady(false);
+        setOpponentReady(false);
         setCurrentRolls({ roll1: data.roll1, roll2: data.roll2 });
         setRounds((prev) => [
           ...prev,
@@ -95,6 +99,16 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
         setPhase('round_result');
       },
     );
+
+    socket.on('roll_ready', (data: { count: number }) => {
+      if (data.count === 1) {
+        // One player ready, waiting for other
+        setOpponentReady(false); // will be updated below
+      }
+      if (data.count === 2) {
+        setOpponentReady(true);
+      }
+    });
 
     socket.on(
       'match_over',
@@ -124,6 +138,7 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
       socket.off('queue_joined');
       socket.off('match_found');
       socket.off('round_result');
+      socket.off('roll_ready');
       socket.off('match_over');
       socket.off('opponent_disconnected');
       socket.off('error');
@@ -143,11 +158,11 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
   }
 
   function handleRoll() {
-    if (!roomId) return;
-    if (phase !== 'round_result' && phase !== 'rolling') return;
+    if (!roomId || iReady) return;
     const socket = getSocket();
+    setIReady(true);
     setPhase('rolling');
-    socket.emit('roll', { roomId });
+    socket.emit('roll', { roomId, playerId });
   }
 
   function resetGame() {
@@ -356,14 +371,26 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
           )}
 
           {/* Roll button */}
-          <div className='flex justify-center'>
+          <div className='flex flex-col items-center gap-3'>
+            <div className='flex gap-6 text-sm'>
+              <span className={iReady ? 'text-green-400' : 'text-gray-500'}>
+                {iReady ? '✓ You are ready' : '· Waiting for you'}
+              </span>
+              <span
+                className={opponentReady ? 'text-green-400' : 'text-gray-500'}
+              >
+                {opponentReady
+                  ? `✓ ${opponent?.name} is ready`
+                  : `· Waiting for ${opponent?.name}`}
+              </span>
+            </div>
             <button
               onClick={handleRoll}
-              disabled={phase === 'rolling'}
+              disabled={iReady}
               className='bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold text-lg px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-all duration-200'
             >
-              {phase === 'rolling'
-                ? 'Rolling...'
+              {iReady
+                ? 'Waiting for opponent...'
                 : rounds.length === 0
                   ? 'ROLL'
                   : 'NEXT ROLL'}

@@ -23,6 +23,7 @@ interface RoomState {
   rounds: { roll1: number; roll2: number; winnerId: string | null }[];
   p1RoundWins: number;
   p2RoundWins: number;
+  readyToRoll: Set<string>;
 }
 
 const queue: QueuedPlayer[] = [];
@@ -83,6 +84,7 @@ app.prepare().then(() => {
             rounds: [],
             p1RoundWins: 0,
             p2RoundWins: 0,
+            readyToRoll: new Set(),
           });
 
           // Join both sockets to the room
@@ -125,9 +127,23 @@ app.prepare().then(() => {
     });
 
     // Player rolls dice
-    socket.on('roll', (data: { roomId: string }) => {
+    socket.on('roll', (data: { roomId: string; playerId: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
+
+      // Add this player to the ready set
+      room.readyToRoll.add(data.playerId);
+
+      // Notify both players how many are ready
+      io.to(data.roomId).emit('roll_ready', {
+        count: room.readyToRoll.size,
+      });
+
+      // Only roll when both players are ready
+      if (room.readyToRoll.size < 2) return;
+
+      // Reset for next round
+      room.readyToRoll.clear();
 
       const roll1 = rollDie();
       const roll2 = rollDie();
@@ -174,7 +190,6 @@ app.prepare().then(() => {
           loserElo,
         );
 
-        // Save to DB
         prisma
           .$transaction(async (tx) => {
             await tx.match.create({
