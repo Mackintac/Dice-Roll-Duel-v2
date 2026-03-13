@@ -107,6 +107,15 @@ function SignInForm() {
             {loading ? 'Signing in...' : 'SIGN IN'}
           </button>
 
+          <div className='text-center'>
+            <Link
+              href='/auth/forgot-password'
+              className='text-gray-400 hover:text-white text-xs transition-colors'
+            >
+              Forgot your password?
+            </Link>
+          </div>
+
           <div className='relative flex items-center gap-4'>
             <div className='flex-1 h-px bg-white/20' />
             <span className='text-gray-500 text-xs tracking-widest'>OR</span>
