@@ -340,11 +340,11 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
           />
 
           {/* Round result message */}
-          {phase === 'round_result' && currentRolls && (
+          {phase === 'round_result' && rounds.length > 0 && (
             <p className='text-center text-white/80 text-sm mb-4'>
-              {currentRolls.roll1 === currentRolls.roll2
+              {rounds[rounds.length - 1].winnerId === null
                 ? 'Tie — no point awarded'
-                : currentRolls.roll1 > currentRolls.roll2
+                : rounds[rounds.length - 1].winnerId === playerIdRef.current
                   ? `${me?.name} wins the round!`
                   : `${opponent?.name} wins the round!`}
             </p>
