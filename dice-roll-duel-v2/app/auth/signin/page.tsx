@@ -10,7 +10,7 @@ function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get('registered');
-
+  const resetSuccess = searchParams.get('reset');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +65,15 @@ function SignInForm() {
         {registered && (
           <div className='bg-green-500/20 border border-green-500/30 rounded-xl px-4 py-3 text-green-400 text-sm text-center mb-6'>
             Account created! Sign in to continue.
+          </div>
+        )}
+
+        {/* Success messge after pw reset*/}
+        {resetSuccess && (
+          <div className='bg-green-500/20 border border-green-500/50 rounded-lg px-4 py-3 mb-4'>
+            <p className='text-green-300 text-sm'>
+              Password reset successfully. You can now sign in.
+            </p>
           </div>
         )}
 
