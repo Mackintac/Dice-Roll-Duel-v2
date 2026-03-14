@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSocket } from '../lib/socket';
 import ScorePips from '../components/ScorePips';
 import DiceRoller from '../components/DiceRoller';
+import Link from 'next/link';
 
 interface Player {
   id: string;
@@ -125,8 +126,6 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
       }) => {
         setMatchResult(data);
         setPhase('match_over');
-
-        setTimeout(() => router.push('/leaderboard'), 4000);
       },
     );
 
@@ -180,6 +179,8 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
     setMyRoundWins(0);
     setOpponentRoundWins(0);
     setMatchResult(null);
+    setIReady(false);
+    setOpponentReady(false);
   }
 
   // IDLE — find a match
@@ -305,9 +306,22 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
               })}
             </div>
 
-            <p className='text-gray-500 text-xs'>
-              Redirecting to leaderboard...
-            </p>
+            <div className='flex gap-3 justify-center mt-4'>
+              <button
+                onClick={() => {
+                  resetGame();
+                }}
+                className='bg-yellow-500 hover:bg-yellow-400 text-black font-bold px-8 py-3 rounded-full transition-all duration-200'
+              >
+                Play Again
+              </button>
+              <Link
+                href='/leaderboard'
+                className='bg-white/20 hover:bg-white/30 text-white font-semibold px-8 py-3 rounded-full border border-white/30 transition-all duration-200'
+              >
+                Leaderboard
+              </Link>
+            </div>
           </div>
         </div>
       </main>
