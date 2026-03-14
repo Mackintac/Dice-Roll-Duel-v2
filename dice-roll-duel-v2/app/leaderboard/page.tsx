@@ -8,6 +8,106 @@ export default async function LeaderboardPage() {
     orderBy: { elo: 'desc' },
   });
 
+  // Fetch all matches for records
+  const allMatches = await prisma.match.findMany({
+    include: {
+      player1: true,
+      player2: true,
+      rounds: true,
+      winner: true,
+    },
+    orderBy: { playedAt: 'asc' },
+  });
+
+  // All time highest and lowest ELO across all players
+  const highestEloPlayer = players[0]; // already sorted by elo desc
+  const allEloChanges = allMatches.map((m) => m.eloChange);
+
+  // Longest game
+  const longestMatch = allMatches.reduce(
+    (max, match) => (match.rounds.length > max.rounds.length ? match : max),
+    allMatches[0] ?? null,
+  );
+
+  // Win/loss streaks across all players
+  function calculateStreaks(playerId: string) {
+    const playerMatches = allMatches.filter(
+      (m) => m.player1Id === playerId || m.player2Id === playerId,
+    );
+    let longest = 0;
+    let current = 0;
+    playerMatches.forEach((m) => {
+      if (m.winnerId === playerId) {
+        current++;
+        if (current > longest) longest = current;
+      } else {
+        current = 0;
+      }
+    });
+    return longest;
+  }
+
+  function calculateLossStreaks(playerId: string) {
+    const playerMatches = allMatches.filter(
+      (m) => m.player1Id === playerId || m.player2Id === playerId,
+    );
+    let longest = 0;
+    let current = 0;
+    playerMatches.forEach((m) => {
+      if (m.winnerId !== playerId) {
+        current++;
+        if (current > longest) longest = current;
+      } else {
+        current = 0;
+      }
+    });
+    return longest;
+  }
+
+  const winStreakRecord = players.reduce(
+    (best, player) => {
+      const streak = calculateStreaks(player.id);
+      return streak > best.streak ? { player, streak } : best;
+    },
+    { player: players[0], streak: 0 },
+  );
+
+  const lossStreakRecord = players.reduce(
+    (best, player) => {
+      const streak = calculateLossStreaks(player.id);
+      return streak > best.streak ? { player, streak } : best;
+    },
+    { player: players[0], streak: 0 },
+  );
+
+  // All time lowest ELO — reconstruct from match history
+  const playerEloHistory: Record<string, number[]> = {};
+  allMatches.forEach((match) => {
+    const winnerId = match.winnerId;
+    const loserId =
+      match.player1Id === winnerId ? match.player2Id : match.player1Id;
+
+    if (!playerEloHistory[winnerId]) playerEloHistory[winnerId] = [1000];
+    if (!playerEloHistory[loserId]) playerEloHistory[loserId] = [1000];
+
+    const prevWinner =
+      playerEloHistory[winnerId][playerEloHistory[winnerId].length - 1];
+    const prevLoser =
+      playerEloHistory[loserId][playerEloHistory[loserId].length - 1];
+
+    playerEloHistory[winnerId].push(prevWinner + match.eloChange);
+    playerEloHistory[loserId].push(prevLoser - match.eloChange);
+  });
+
+  let lowestEloPlayer = players[0];
+  let lowestElo = 1000;
+  for (const [playerId, history] of Object.entries(playerEloHistory)) {
+    const min = Math.min(...history);
+    if (min < lowestElo) {
+      lowestElo = min;
+      lowestEloPlayer = players.find((p) => p.id === playerId) ?? players[0];
+    }
+  }
   return (
     <main className='min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 p-4'>
       <div className='max-w-3xl mx-auto'>
@@ -26,7 +126,71 @@ export default async function LeaderboardPage() {
             Play
           </Link>
         </div>
-
+        {/* Records */}
+        {players.length > 0 && allMatches.length > 0 && (
+          <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-6 mb-6'>
+            <h2 className='text-white font-bold text-lg mb-4'>🏅 Records</h2>
+            <div className='grid grid-cols-2 sm:grid-cols-3 gap-4'>
+              <div className='bg-white/10 rounded-xl p-4'>
+                <p className='text-yellow-400 font-bold text-2xl font-mono'>
+                  {highestEloPlayer?.elo ?? '—'}
+                </p>
+                <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                  Highest ELO
+                </p>
+                <p className='text-white text-sm mt-1'>
+                  {highestEloPlayer?.name}
+                </p>
+              </div>
+              <div className='bg-white/10 rounded-xl p-4'>
+                <p className='text-red-400 font-bold text-2xl font-mono'>
+                  {lowestElo}
+                </p>
+                <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                  Lowest ELO
+                </p>
+                <p className='text-white text-sm mt-1'>
+                  {lowestEloPlayer?.name}
+                </p>
+              </div>
+              <div className='bg-white/10 rounded-xl p-4'>
+                <p className='text-white font-bold text-2xl font-mono'>
+                  {longestMatch?.rounds.length ?? '—'}
+                </p>
+                <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                  Longest Game
+                </p>
+                <p className='text-white text-sm mt-1'>
+                  {longestMatch
+                    ? `${longestMatch.player1.name} vs ${longestMatch.player2.name}`
+                    : '—'}
+                </p>
+              </div>
+              <div className='bg-white/10 rounded-xl p-4'>
+                <p className='text-green-400 font-bold text-2xl font-mono'>
+                  {winStreakRecord.streak}
+                </p>
+                <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                  Longest Win Streak
+                </p>
+                <p className='text-white text-sm mt-1'>
+                  {winStreakRecord.player?.name}
+                </p>
+              </div>
+              <div className='bg-white/10 rounded-xl p-4'>
+                <p className='text-red-400 font-bold text-2xl font-mono'>
+                  {lossStreakRecord.streak}
+                </p>
+                <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                  Longest Loss Streak
+                </p>
+                <p className='text-white text-sm mt-1'>
+                  {lossStreakRecord.player?.name}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Table */}
         {players.length === 0 ? (
           <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-16 text-center'>
