@@ -57,15 +57,15 @@ export default async function ProfilePage() {
 
   // Build ELO history from matches (oldest to newest)
   const eloHistory = [...allMatches].reverse().reduce(
-    (acc, match) => {
+    (acc, match, index) => {
       const prev = acc[acc.length - 1];
       acc.push({
-        date: new Date(match.playedAt).toLocaleDateString(),
+        game: index + 1,
         elo: prev.elo + match.eloChange,
       });
       return acc;
     },
-    [{ date: 'Start', elo: 1000 }],
+    [{ game: 0, elo: 1000 }],
   );
 
   const total = player.wins + player.losses;

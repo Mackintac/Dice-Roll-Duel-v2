@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 
 interface EloChartProps {
-  data: { date: string; elo: number }[];
+  data: { game: number; elo: number }[];
 }
 
 export default function EloChart({ data }: EloChartProps) {
@@ -19,10 +19,17 @@ export default function EloChart({ data }: EloChartProps) {
     <ResponsiveContainer width='100%' height={200}>
       <LineChart data={data}>
         <XAxis
-          dataKey='date'
+          dataKey='game'
           tick={{ fill: '#9ca3af', fontSize: 11 }}
           axisLine={false}
           tickLine={false}
+          label={{
+            value: 'Game',
+            position: 'insideBottomRight',
+            fill: '#9ca3af',
+            fontSize: 11,
+            offset: -5,
+          }}
         />
         <YAxis
           tick={{ fill: '#9ca3af', fontSize: 11 }}
@@ -37,6 +44,8 @@ export default function EloChart({ data }: EloChartProps) {
             borderRadius: '8px',
             color: '#fff',
           }}
+          formatter={(value: unknown) => [value as number, 'ELO']}
+          labelFormatter={(label: unknown) => `Game ${label}`}
         />
         <ReferenceLine
           y={1000}
