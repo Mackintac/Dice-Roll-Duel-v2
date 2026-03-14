@@ -33,6 +33,7 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [me, setMe] = useState<Player | null>(null);
   const [opponent, setOpponent] = useState<Player | null>(null);
+  const opponentRef = useRef<Player | null>(null);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [currentRolls, setCurrentRolls] = useState<{
     roll1: number;
@@ -56,17 +57,16 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
       setPhase('queuing');
     });
 
-    socket.on(
-      'match_found',
-      (data: { roomId: string; player1: Player; player2: Player }) => {
-        setRoomId(data.roomId);
-        const iAmPlayer1 = data.player1.id === playerId;
-        iAmPlayer1Ref.current = iAmPlayer1;
-        setMe(iAmPlayer1 ? data.player1 : data.player2);
-        setOpponent(iAmPlayer1 ? data.player2 : data.player1);
-        setPhase('round_result');
-      },
-    );
+    socket.on('match_found', (data) => {
+      const iAmPlayer1 = data.player1.id === playerId;
+      iAmPlayer1Ref.current = iAmPlayer1;
+      const opponentPlayer = iAmPlayer1 ? data.player2 : data.player1;
+      setMe(iAmPlayer1 ? data.player1 : data.player2);
+      setOpponent(opponentPlayer);
+      opponentRef.current = opponentPlayer;
+      setRoomId(data.roomId);
+      setPhase('round_result');
+    });
 
     socket.on(
       'round_result',
@@ -101,15 +101,19 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
       },
     );
 
-    socket.on('roll_ready', (data: { count: number }) => {
-      if (data.count === 1) {
-        // One player ready, waiting for other
-        setOpponentReady(false); // will be updated below
-      }
-      if (data.count === 2) {
-        setOpponentReady(true);
-      }
-    });
+    socket.on(
+      'roll_ready',
+      (data: { count: number; readyPlayerIds: string[] }) => {
+        if (
+          opponentRef.current &&
+          data.readyPlayerIds.includes(opponentRef.current.id)
+        ) {
+          setOpponentReady(true);
+        } else {
+          setOpponentReady(false);
+        }
+      },
+    );
 
     socket.on(
       'match_over',

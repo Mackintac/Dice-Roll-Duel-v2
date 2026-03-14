@@ -137,8 +137,8 @@ app.prepare().then(() => {
       // Notify both players how many are ready
       io.to(data.roomId).emit('roll_ready', {
         count: room.readyToRoll.size,
+        readyPlayerIds: Array.from(room.readyToRoll),
       });
-
       // Only roll when both players are ready
       if (room.readyToRoll.size < 2) return;
 
