@@ -66,7 +66,53 @@ export default async function PublicProfilePage({
     },
     [{ game: 0, elo: 1000 }],
   );
+  // All time highest and lowest ELO
+  const eloSnapshots = eloHistory.map((e) => e.elo);
+  const highestElo = Math.max(...eloSnapshots);
+  const lowestElo = Math.min(...eloSnapshots);
 
+  // Longest game in rounds
+  const longestGame = allMatches.reduce(
+    (max, match) => (match.rounds.length > max ? match.rounds.length : max),
+    0,
+  );
+
+  // Win/loss streaks
+  let longestWinStreak = 0;
+  let longestLossStreak = 0;
+  let currentWinStreak = 0;
+  let currentLossStreak = 0;
+
+  [...allMatches].reverse().forEach((match) => {
+    if (match.won) {
+      currentWinStreak++;
+      currentLossStreak = 0;
+      if (currentWinStreak > longestWinStreak)
+        longestWinStreak = currentWinStreak;
+    } else {
+      currentLossStreak++;
+      currentWinStreak = 0;
+      if (currentLossStreak > longestLossStreak)
+        longestLossStreak = currentLossStreak;
+    }
+  });
+
+  // Games vs each opponent
+  const opponentStats = allMatches.reduce(
+    (acc, match) => {
+      const oppId = match.opponent.id;
+      const oppName = match.opponent.name;
+      if (!acc[oppId]) acc[oppId] = { name: oppName, games: 0, wins: 0 };
+      acc[oppId].games++;
+      if (match.won) acc[oppId].wins++;
+      return acc;
+    },
+    {} as Record<string, { name: string; games: number; wins: number }>,
+  );
+
+  const opponentList = Object.values(opponentStats).sort(
+    (a, b) => b.games - a.games,
+  );
   const total = player.wins + player.losses;
   const winRate = total > 0 ? Math.round((player.wins / total) * 100) : 0;
 
@@ -123,6 +169,84 @@ export default async function PublicProfilePage({
             <EloChart data={eloHistory} />
           </div>
         )}
+        {/* Career Stats */}
+        <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-6 mb-6'>
+          <h2 className='text-white font-bold text-lg mb-4'>Career Stats</h2>
+          <div className='grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6'>
+            <div className='bg-white/10 rounded-xl p-4 text-center'>
+              <p className='text-yellow-400 font-bold text-2xl font-mono'>
+                {highestElo}
+              </p>
+              <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                Peak ELO
+              </p>
+            </div>
+            <div className='bg-white/10 rounded-xl p-4 text-center'>
+              <p className='text-red-400 font-bold text-2xl font-mono'>
+                {lowestElo}
+              </p>
+              <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                Lowest ELO
+              </p>
+            </div>
+            <div className='bg-white/10 rounded-xl p-4 text-center'>
+              <p className='text-green-400 font-bold text-2xl font-mono'>
+                {longestWinStreak}
+              </p>
+              <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                Best Win Streak
+              </p>
+            </div>
+            <div className='bg-white/10 rounded-xl p-4 text-center'>
+              <p className='text-red-400 font-bold text-2xl font-mono'>
+                {longestLossStreak}
+              </p>
+              <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                Worst Loss Streak
+              </p>
+            </div>
+            <div className='bg-white/10 rounded-xl p-4 text-center'>
+              <p className='text-white font-bold text-2xl font-mono'>
+                {longestGame}
+              </p>
+              <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                Longest Game
+              </p>
+            </div>
+            <div className='bg-white/10 rounded-xl p-4 text-center'>
+              <p className='text-white font-bold text-2xl font-mono'>{total}</p>
+              <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
+                Total Games
+              </p>
+            </div>
+          </div>
+
+          {/* Opponents */}
+          {opponentList.length > 0 && (
+            <>
+              <h3 className='text-white font-semibold text-sm mb-3'>
+                Head to Head
+              </h3>
+              <div className='divide-y divide-white/10'>
+                {opponentList.map((opp) => (
+                  <div
+                    key={opp.name}
+                    className='flex items-center justify-between py-3'
+                  >
+                    <span className='text-white text-sm'>{opp.name}</span>
+                    <div className='flex items-center gap-4 text-sm'>
+                      <span className='text-gray-400'>{opp.games} games</span>
+                      <span className='text-green-400'>{opp.wins}W</span>
+                      <span className='text-red-400'>
+                        {opp.games - opp.wins}L
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Match History */}
         <div className='bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 overflow-hidden'>
