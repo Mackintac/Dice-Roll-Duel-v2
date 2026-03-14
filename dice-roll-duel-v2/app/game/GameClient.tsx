@@ -129,10 +129,17 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
       },
     );
 
-    socket.on('opponent_disconnected', () => {
-      alert('Your opponent disconnected.');
-      resetGame();
-    });
+    socket.on(
+      'opponent_disconnected',
+      (data: { winnerId: string; winnerName: string; delta: number }) => {
+        setMatchResult({
+          winnerId: data.winnerId,
+          winnerName: data.winnerName,
+          delta: data.delta,
+        });
+        setPhase('match_over');
+      },
+    );
 
     socket.on('error', (data: { message: string }) => {
       console.error('Socket error:', data.message);
