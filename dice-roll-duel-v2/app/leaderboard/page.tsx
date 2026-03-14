@@ -19,10 +19,6 @@ export default async function LeaderboardPage() {
     orderBy: { playedAt: 'asc' },
   });
 
-  // All time highest and lowest ELO across all players
-  const highestEloPlayer = players[0]; // already sorted by elo desc
-  const allEloChanges = allMatches.map((m) => m.eloChange);
-
   // Longest game
   const longestMatch = allMatches.reduce(
     (max, match) => (match.rounds.length > max.rounds.length ? match : max),
@@ -99,15 +95,27 @@ export default async function LeaderboardPage() {
     playerEloHistory[loserId].push(prevLoser - match.eloChange);
   });
 
-  let lowestEloPlayer = players[0];
-  let lowestElo = 1000;
+  let highestEloEver = 1000;
+  let highestEloPlayerName = '—';
+  let lowestEloEver = 1000;
+  let lowestEloPlayerName = '—';
+
   for (const [playerId, history] of Object.entries(playerEloHistory)) {
+    const max = Math.max(...history);
     const min = Math.min(...history);
-    if (min < lowestElo) {
-      lowestElo = min;
-      lowestEloPlayer = players.find((p) => p.id === playerId) ?? players[0];
+    const player = players.find((p) => p.id === playerId);
+    if (!player) continue;
+
+    if (max > highestEloEver) {
+      highestEloEver = max;
+      highestEloPlayerName = player.name;
+    }
+    if (min < lowestEloEver) {
+      lowestEloEver = min;
+      lowestEloPlayerName = player.name;
     }
   }
+
   return (
     <main className='min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 p-4'>
       <div className='max-w-3xl mx-auto'>
@@ -133,25 +141,23 @@ export default async function LeaderboardPage() {
             <div className='grid grid-cols-2 sm:grid-cols-3 gap-4'>
               <div className='bg-white/10 rounded-xl p-4'>
                 <p className='text-yellow-400 font-bold text-2xl font-mono'>
-                  {highestEloPlayer?.elo ?? '—'}
+                  {highestEloEver}
                 </p>
                 <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
-                  Highest ELO
+                  All Time Highest ELO
                 </p>
                 <p className='text-white text-sm mt-1'>
-                  {highestEloPlayer?.name}
+                  {highestEloPlayerName}
                 </p>
               </div>
               <div className='bg-white/10 rounded-xl p-4'>
                 <p className='text-red-400 font-bold text-2xl font-mono'>
-                  {lowestElo}
+                  {lowestEloEver}
                 </p>
                 <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
-                  Lowest ELO
+                  All Time Lowest ELO
                 </p>
-                <p className='text-white text-sm mt-1'>
-                  {lowestEloPlayer?.name}
-                </p>
+                <p className='text-white text-sm mt-1'>{lowestEloPlayerName}</p>
               </div>
               <div className='bg-white/10 rounded-xl p-4'>
                 <p className='text-white font-bold text-2xl font-mono'>
