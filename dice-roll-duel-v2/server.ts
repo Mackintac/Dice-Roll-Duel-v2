@@ -241,11 +241,9 @@ app.prepare().then(() => {
     socket.on('disconnect', async () => {
       console.log(`Socket disconnected: ${socket.id}`);
 
-      // Remove from queue
       const queueIndex = queue.findIndex((p) => p.socketId === socket.id);
       if (queueIndex !== -1) queue.splice(queueIndex, 1);
 
-      // Handle disconnect during a match
       for (const [roomId, room] of rooms.entries()) {
         if (
           room.player1.socketId === socket.id ||
@@ -256,53 +254,67 @@ app.prepare().then(() => {
           const remainingPlayer =
             room.player1.socketId === socket.id ? room.player2 : room.player1;
 
-          const winnerElo = remainingPlayer.elo;
-          const loserElo = disconnectedPlayer.elo;
-          const { newWinner, newLoser, delta } = calculateElo(
-            winnerElo,
-            loserElo,
-          );
+          const disconnectedWins =
+            room.player1.socketId === socket.id
+              ? room.p1RoundWins
+              : room.p2RoundWins;
+          const remainingWins =
+            room.player1.socketId === socket.id
+              ? room.p2RoundWins
+              : room.p1RoundWins;
 
-          // Save match as a win for the remaining player
-          try {
-            await prisma.$transaction(async (tx) => {
-              await tx.match.create({
-                data: {
-                  player1Id: room.player1.playerId,
-                  player2Id: room.player2.playerId,
-                  winnerId: remainingPlayer.playerId,
-                  eloChange: delta,
-                  rounds: {
-                    create: room.rounds.map((r, i) => ({
-                      roll1: r.roll1,
-                      roll2: r.roll2,
-                      winnerId: r.winnerId,
-                      index: i,
-                    })),
+          // Only award win/loss if the disconnecting player is currently losing
+          if (disconnectedWins < remainingWins) {
+            const winnerElo = remainingPlayer.elo;
+            const loserElo = disconnectedPlayer.elo;
+            const { newWinner, newLoser, delta } = calculateElo(
+              winnerElo,
+              loserElo,
+            );
+
+            try {
+              await prisma.$transaction(async (tx) => {
+                await tx.match.create({
+                  data: {
+                    player1Id: room.player1.playerId,
+                    player2Id: room.player2.playerId,
+                    winnerId: remainingPlayer.playerId,
+                    eloChange: delta,
+                    rounds: {
+                      create: room.rounds.map((r, i) => ({
+                        roll1: r.roll1,
+                        roll2: r.roll2,
+                        winnerId: r.winnerId,
+                        index: i,
+                      })),
+                    },
                   },
-                },
+                });
+
+                await tx.player.update({
+                  where: { id: remainingPlayer.playerId },
+                  data: { elo: newWinner, wins: { increment: 1 } },
+                });
+
+                await tx.player.update({
+                  where: { id: disconnectedPlayer.playerId },
+                  data: { elo: newLoser, losses: { increment: 1 } },
+                });
               });
 
-              await tx.player.update({
-                where: { id: remainingPlayer.playerId },
-                data: { elo: newWinner, wins: { increment: 1 } },
+              io.to(roomId).emit('opponent_disconnected', {
+                winnerId: remainingPlayer.playerId,
+                winnerName: remainingPlayer.playerName,
+                delta,
               });
-
-              await tx.player.update({
-                where: { id: disconnectedPlayer.playerId },
-                data: { elo: newLoser, losses: { increment: 1 } },
-              });
-            });
-          } catch (err) {
-            console.error('Failed to save disconnect match result:', err);
+            } catch (err) {
+              console.error('Failed to save disconnect match result:', err);
+              io.to(roomId).emit('opponent_disconnected', { cancelled: true });
+            }
+          } else {
+            // Score is tied (0-0) or disconnecting player was winning — cancel with no penalty
+            io.to(roomId).emit('opponent_disconnected', { cancelled: true });
           }
-
-          // Notify remaining player
-          io.to(roomId).emit('opponent_disconnected', {
-            winnerId: remainingPlayer.playerId,
-            winnerName: remainingPlayer.playerName,
-            delta,
-          });
 
           rooms.delete(roomId);
           break;

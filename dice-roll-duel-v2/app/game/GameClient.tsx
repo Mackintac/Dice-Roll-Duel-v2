@@ -131,16 +131,27 @@ export default function GameClient({ playerId, playerName }: GameClientProps) {
 
     socket.on(
       'opponent_disconnected',
-      (data: { winnerId: string; winnerName: string; delta: number }) => {
+      (data: {
+        winnerId?: string;
+        winnerName?: string;
+        delta?: number;
+        cancelled?: boolean;
+      }) => {
+        if (data.cancelled) {
+          alert(
+            'Your opponent disconnected. The match has been cancelled — no ELO change.',
+          );
+          resetGame();
+          return;
+        }
         setMatchResult({
-          winnerId: data.winnerId,
-          winnerName: data.winnerName,
-          delta: data.delta,
+          winnerId: data.winnerId!,
+          winnerName: data.winnerName!,
+          delta: data.delta!,
         });
         setPhase('match_over');
       },
     );
-
     socket.on('error', (data: { message: string }) => {
       console.error('Socket error:', data.message);
     });
