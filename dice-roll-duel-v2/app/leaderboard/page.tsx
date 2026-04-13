@@ -1,7 +1,7 @@
 import { prisma } from '@/app/lib/db';
 import Link from 'next/link';
 
-export const revalidate = 30;
+export const dynamic = 'force-dynamic';
 
 export default async function LeaderboardPage() {
   const players = await prisma.player.findMany({
