@@ -29,22 +29,222 @@ interface RoomState {
 const queue: QueuedPlayer[] = [];
 const rooms = new Map<string, RoomState>();
 
+// Bot state — populated on startup
+const BOT_NAMES = ['Bot Alpha', 'Bot Beta', 'Bot Gamma'];
+const botPlayerIds = new Set<string>();
+
+let io: Server;
+
 function rollDie(): number {
   return Math.floor(Math.random() * 6) + 1;
 }
 
-app.prepare().then(() => {
+function isBot(playerId: string): boolean {
+  return botPlayerIds.has(playerId);
+}
+
+function tryMatchmaking() {
+  if (queue.length < 2) return;
+
+  const player1 = queue.shift()!;
+  const player2 = queue.shift()!;
+
+  const roomId = `${player1.socketId}-${player2.socketId}`;
+
+  rooms.set(roomId, {
+    player1,
+    player2,
+    rounds: [],
+    p1RoundWins: 0,
+    p2RoundWins: 0,
+    readyToRoll: new Set(),
+  });
+
+  // Only real sockets join the room; bot socket IDs are fake
+  if (!isBot(player1.playerId)) {
+    io.sockets.sockets.get(player1.socketId)?.join(roomId);
+  }
+  if (!isBot(player2.playerId)) {
+    io.sockets.sockets.get(player2.socketId)?.join(roomId);
+  }
+
+  io.to(roomId).emit('match_found', {
+    roomId,
+    player1: { id: player1.playerId, name: player1.playerName, elo: player1.elo },
+    player2: { id: player2.playerId, name: player2.playerName, elo: player2.elo },
+  });
+
+  console.log(`Match started: ${player1.playerName} vs ${player2.playerName}`);
+
+  // Bots auto-roll after a short random delay
+  if (isBot(player1.playerId)) scheduleBotRoll(roomId, player1.playerId);
+  if (isBot(player2.playerId)) scheduleBotRoll(roomId, player2.playerId);
+}
+
+function scheduleBotRoll(roomId: string, botId: string) {
+  const delay = 800 + Math.random() * 1200; // 0.8–2 s
+  setTimeout(() => handleRoll(roomId, botId), delay);
+}
+
+async function requeueBot(botId: string) {
+  if (queue.some((p) => p.playerId === botId)) return;
+  setTimeout(async () => {
+    if (queue.some((p) => p.playerId === botId)) return;
+    try {
+      const bot = await prisma.player.findUniqueOrThrow({ where: { id: botId } });
+      queue.push({
+        socketId: `bot-${botId}`,
+        playerId: botId,
+        playerName: bot.name,
+        elo: bot.elo,
+      });
+      console.log(`${bot.name} re-queued. Queue size: ${queue.length}`);
+      tryMatchmaking();
+    } catch (err) {
+      console.error('Failed to re-queue bot:', err);
+    }
+  }, 60_000);
+}
+
+async function initBots() {
+  for (const name of BOT_NAMES) {
+    const bot = await prisma.player.upsert({
+      where: { name },
+      create: { name, elo: 1000 },
+      update: {},
+    });
+    botPlayerIds.add(bot.id);
+    console.log(`Bot initialized: ${bot.name} (${bot.id})`);
+  }
+  for (const botId of botPlayerIds) {
+    await requeueBot(botId);
+  }
+}
+
+// Core roll/round logic, callable from both socket events and bot scheduler
+function handleRoll(roomId: string, playerId: string) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  room.readyToRoll.add(playerId);
+
+  io.to(roomId).emit('roll_ready', {
+    count: room.readyToRoll.size,
+    readyPlayerIds: Array.from(room.readyToRoll),
+  });
+
+  if (room.readyToRoll.size < 2) return;
+
+  room.readyToRoll.clear();
+
+  const roll1 = rollDie();
+  const roll2 = rollDie();
+
+  let roundWinnerId: string | null = null;
+  if (roll1 > roll2) roundWinnerId = room.player1.playerId;
+  else if (roll2 > roll1) roundWinnerId = room.player2.playerId;
+
+  const round = { roll1, roll2, winnerId: roundWinnerId };
+  room.rounds.push(round);
+
+  if (roundWinnerId === room.player1.playerId) room.p1RoundWins++;
+  else if (roundWinnerId === room.player2.playerId) room.p2RoundWins++;
+
+  io.to(roomId).emit('round_result', {
+    roll1,
+    roll2,
+    winnerId: roundWinnerId,
+    wins: {
+      [room.player1.playerId]: room.p1RoundWins,
+      [room.player2.playerId]: room.p2RoundWins,
+    },
+    roundIndex: room.rounds.length - 1,
+  });
+
+  if (room.p1RoundWins >= 2 || room.p2RoundWins >= 2) {
+    const winnerId =
+      room.p1RoundWins >= 2 ? room.player1.playerId : room.player2.playerId;
+    const loserId =
+      winnerId === room.player1.playerId
+        ? room.player2.playerId
+        : room.player1.playerId;
+
+    const winnerElo =
+      winnerId === room.player1.playerId ? room.player1.elo : room.player2.elo;
+    const loserElo =
+      winnerId === room.player1.playerId ? room.player2.elo : room.player1.elo;
+
+    const { newWinner, newLoser, delta } = calculateElo(winnerElo, loserElo);
+
+    prisma
+      .$transaction(async (tx) => {
+        await tx.match.create({
+          data: {
+            player1Id: room.player1.playerId,
+            player2Id: room.player2.playerId,
+            winnerId,
+            eloChange: delta,
+            rounds: {
+              create: room.rounds.map((r, i) => ({
+                roll1: r.roll1,
+                roll2: r.roll2,
+                winnerId: r.winnerId,
+                index: i,
+              })),
+            },
+          },
+        });
+
+        await tx.player.update({
+          where: { id: winnerId },
+          data: { elo: newWinner, wins: { increment: 1 } },
+        });
+
+        await tx.player.update({
+          where: { id: loserId },
+          data: { elo: newLoser, losses: { increment: 1 } },
+        });
+      })
+      .catch(console.error);
+
+    io.to(roomId).emit('match_over', {
+      winnerId,
+      winnerName:
+        winnerId === room.player1.playerId
+          ? room.player1.playerName
+          : room.player2.playerName,
+      delta,
+      rounds: room.rounds,
+    });
+
+    const { player1, player2 } = room;
+    rooms.delete(roomId);
+
+    // Re-queue bots immediately after the match ends
+    if (isBot(player1.playerId)) requeueBot(player1.playerId);
+    if (isBot(player2.playerId)) requeueBot(player2.playerId);
+  } else {
+    // Schedule bot roll for the next round
+    if (isBot(room.player1.playerId)) scheduleBotRoll(roomId, room.player1.playerId);
+    if (isBot(room.player2.playerId)) scheduleBotRoll(roomId, room.player2.playerId);
+  }
+}
+
+app.prepare().then(async () => {
   const httpServer = createServer((req, res) => {
     const parsedUrl = parse(req.url!, true);
     handle(req, res, parsedUrl);
   });
 
-  const io = new Server(httpServer, {
+  io = new Server(httpServer, {
     cors: {
       origin: 'http://localhost:3000',
       methods: ['GET', 'POST'],
     },
   });
+
+  // Seed bots into the DB and queue them up
+  await initBots();
 
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id}`);
@@ -55,6 +255,9 @@ app.prepare().then(() => {
         const player = await prisma.player.findUniqueOrThrow({
           where: { id: data.playerId },
         });
+
+        // Safety guard: reject if somehow a bot ID is sent
+        if (isBot(player.id)) return;
 
         // Remove if already in queue
         const existingIndex = queue.findIndex((p) => p.playerId === player.id);
@@ -71,48 +274,7 @@ app.prepare().then(() => {
         socket.emit('queue_joined', { position: queue.length });
         console.log(`${player.name} joined queue. Queue size: ${queue.length}`);
 
-        // If 2+ players in queue, start a match
-        if (queue.length >= 2) {
-          const player1 = queue.shift()!;
-          const player2 = queue.shift()!;
-
-          const roomId = `${player1.socketId}-${player2.socketId}`;
-
-          rooms.set(roomId, {
-            player1,
-            player2,
-            rounds: [],
-            p1RoundWins: 0,
-            p2RoundWins: 0,
-            readyToRoll: new Set(),
-          });
-
-          // Join both sockets to the room
-          const p1Socket = io.sockets.sockets.get(player1.socketId);
-          const p2Socket = io.sockets.sockets.get(player2.socketId);
-
-          p1Socket?.join(roomId);
-          p2Socket?.join(roomId);
-
-          // Notify both players
-          io.to(roomId).emit('match_found', {
-            roomId,
-            player1: {
-              id: player1.playerId,
-              name: player1.playerName,
-              elo: player1.elo,
-            },
-            player2: {
-              id: player2.playerId,
-              name: player2.playerName,
-              elo: player2.elo,
-            },
-          });
-
-          console.log(
-            `Match started: ${player1.playerName} vs ${player2.playerName}`,
-          );
-        }
+        tryMatchmaking();
       } catch (err) {
         console.error('join_queue error:', err);
         socket.emit('error', { message: 'Failed to join queue' });
@@ -128,113 +290,9 @@ app.prepare().then(() => {
 
     // Player rolls dice
     socket.on('roll', (data: { roomId: string; playerId: string }) => {
-      const room = rooms.get(data.roomId);
-      if (!room) return;
-
-      // Add this player to the ready set
-      room.readyToRoll.add(data.playerId);
-
-      // Notify both players how many are ready
-      io.to(data.roomId).emit('roll_ready', {
-        count: room.readyToRoll.size,
-        readyPlayerIds: Array.from(room.readyToRoll),
-      });
-      // Only roll when both players are ready
-      if (room.readyToRoll.size < 2) return;
-
-      // Reset for next round
-      room.readyToRoll.clear();
-
-      const roll1 = rollDie();
-      const roll2 = rollDie();
-
-      let roundWinnerId: string | null = null;
-      if (roll1 > roll2) roundWinnerId = room.player1.playerId;
-      else if (roll2 > roll1) roundWinnerId = room.player2.playerId;
-
-      const round = { roll1, roll2, winnerId: roundWinnerId };
-      room.rounds.push(round);
-
-      if (roundWinnerId === room.player1.playerId) room.p1RoundWins++;
-      else if (roundWinnerId === room.player2.playerId) room.p2RoundWins++;
-
-      io.to(data.roomId).emit('round_result', {
-        roll1,
-        roll2,
-        winnerId: roundWinnerId,
-        wins: {
-          [room.player1.playerId]: room.p1RoundWins,
-          [room.player2.playerId]: room.p2RoundWins,
-        },
-        roundIndex: room.rounds.length - 1,
-      });
-
-      // Check if match is over (first to 2 round wins)
-      if (room.p1RoundWins >= 2 || room.p2RoundWins >= 2) {
-        const winnerId =
-          room.p1RoundWins >= 2 ? room.player1.playerId : room.player2.playerId;
-        const loserId =
-          winnerId === room.player1.playerId
-            ? room.player2.playerId
-            : room.player1.playerId;
-
-        const winnerElo =
-          winnerId === room.player1.playerId
-            ? room.player1.elo
-            : room.player2.elo;
-        const loserElo =
-          winnerId === room.player1.playerId
-            ? room.player2.elo
-            : room.player1.elo;
-
-        const { newWinner, newLoser, delta } = calculateElo(
-          winnerElo,
-          loserElo,
-        );
-
-        prisma
-          .$transaction(async (tx) => {
-            await tx.match.create({
-              data: {
-                player1Id: room.player1.playerId,
-                player2Id: room.player2.playerId,
-                winnerId,
-                eloChange: delta,
-                rounds: {
-                  create: room.rounds.map((r, i) => ({
-                    roll1: r.roll1,
-                    roll2: r.roll2,
-                    winnerId: r.winnerId,
-                    index: i,
-                  })),
-                },
-              },
-            });
-
-            await tx.player.update({
-              where: { id: winnerId },
-              data: { elo: newWinner, wins: { increment: 1 } },
-            });
-
-            await tx.player.update({
-              where: { id: loserId },
-              data: { elo: newLoser, losses: { increment: 1 } },
-            });
-          })
-          .catch(console.error);
-
-        io.to(data.roomId).emit('match_over', {
-          winnerId,
-          winnerName:
-            winnerId === room.player1.playerId
-              ? room.player1.playerName
-              : room.player2.playerName,
-          delta,
-          rounds: room.rounds,
-        });
-
-        rooms.delete(data.roomId);
-      }
+      // Ignore roll events claiming to be from a bot
+      if (isBot(data.playerId)) return;
+      handleRoll(data.roomId, data.playerId);
     });
 
     // Handle disconnect
@@ -317,6 +375,11 @@ app.prepare().then(() => {
           }
 
           rooms.delete(roomId);
+
+          // Re-queue any bot that was in this room
+          if (isBot(room.player1.playerId)) requeueBot(room.player1.playerId);
+          if (isBot(room.player2.playerId)) requeueBot(room.player2.playerId);
+
           break;
         }
       }
