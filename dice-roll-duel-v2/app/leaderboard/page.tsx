@@ -1,27 +1,29 @@
 import { prisma } from '@/app/lib/db';
 import Link from 'next/link';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 10;
 
 export default async function LeaderboardPage() {
   const players = await prisma.player.findMany({
     orderBy: { elo: 'desc' },
   });
 
-  // Fetch all matches for records
+  // Fetch only the fields needed for records — no round rows, no joined relations
   const allMatches = await prisma.match.findMany({
-    include: {
-      player1: true,
-      player2: true,
-      rounds: true,
-      winner: true,
+    select: {
+      id: true,
+      player1Id: true,
+      player2Id: true,
+      winnerId: true,
+      eloChange: true,
+      _count: { select: { rounds: true } },
     },
     orderBy: { playedAt: 'asc' },
   });
 
   // Longest game
   const longestMatch = allMatches.reduce(
-    (max, match) => (match.rounds.length > max.rounds.length ? match : max),
+    (max, match) => (match._count.rounds > max._count.rounds ? match : max),
     allMatches[0] ?? null,
   );
 
@@ -161,14 +163,14 @@ export default async function LeaderboardPage() {
               </div>
               <div className='bg-white/10 rounded-xl p-4'>
                 <p className='text-white font-bold text-2xl font-mono'>
-                  {longestMatch?.rounds.length ?? '—'}
+                  {longestMatch?._count.rounds ?? '—'}
                 </p>
                 <p className='text-gray-400 text-xs uppercase tracking-wider mt-1'>
                   Longest Game
                 </p>
                 <p className='text-white text-sm mt-1'>
                   {longestMatch
-                    ? `${longestMatch.player1.name} vs ${longestMatch.player2.name}`
+                    ? `${players.find((p) => p.id === longestMatch.player1Id)?.name ?? '?'} vs ${players.find((p) => p.id === longestMatch.player2Id)?.name ?? '?'}`
                     : '—'}
                 </p>
               </div>
